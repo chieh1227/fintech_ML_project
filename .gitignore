@@ -1,0 +1,22 @@
+# Python virtual environment
+.venv/
+
+# Byte-compiled / cache
+__pycache__/
+*.py[cod]
+
+# Jupyter notebook checkpoints
+.ipynb_checkpoints/
+
+# Editor settings
+.DS_Store
+.idea/
+.vscode/
+
+# Outputs and generated artifacts
+outputs/
+
+# Logs and temporary files
+*.log
+*.tmp
+*.swp
