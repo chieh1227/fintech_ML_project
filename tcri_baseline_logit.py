@@ -6,9 +6,8 @@ TCRI Baseline (Benchmark) — Logistic Regression (no-industry friendly)
 from __future__ import annotations
 
 import argparse, json, os
-from typing import Dict, List, Tuple
+from typing import Dict, List, Optional, Tuple
 import numpy as np, pandas as pd
-from sklearn.base import BaseEstimator, TransformerMixin
 from sklearn.compose import ColumnTransformer
 from sklearn.calibration import CalibratedClassifierCV
 from sklearn.impute import SimpleImputer
@@ -17,19 +16,6 @@ from sklearn.metrics import average_precision_score, brier_score_loss, f1_score,
                             precision_recall_curve, precision_score, recall_score, roc_auc_score
 from sklearn.preprocessing import OneHotEncoder, StandardScaler
 from sklearn.pipeline import Pipeline
-
-class Winsorizer(BaseEstimator, TransformerMixin):
-    def __init__(self, lower: float = 0.01, upper: float = 0.99):
-        self.lower = lower; self.upper = upper
-        self.lower_bounds_ = None; self.upper_bounds_ = None
-    def fit(self, X, y=None):
-        X = np.asarray(X, dtype=float)
-        self.lower_bounds_ = np.nanquantile(X, self.lower, axis=0)
-        self.upper_bounds_ = np.nanquantile(X, self.upper, axis=0)
-        return self
-    def transform(self, X):
-        X = np.asarray(X, dtype=float)
-        return np.clip(X, self.lower_bounds_, self.upper_bounds_)
 
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="TCRI Logistic Baseline (no-industry ok)")
@@ -59,7 +45,7 @@ def _map_tcri_value(x):
     try: return float(int(s))
     except: return np.nan
 
-def load_and_prepare(csv_path: str, id_col: str, date_col: str, industry_col: str, tcri_col: str) -> pd.DataFrame:
+def load_and_prepare(csv_path: str, id_col: str, date_col: str, industry_col: Optional[str], tcri_col: str) -> pd.DataFrame:
     df = pd.read_csv(csv_path)
     df[date_col] = pd.to_datetime(df[date_col])
     df = df.sort_values([id_col, date_col]).reset_index(drop=True)
@@ -86,11 +72,15 @@ def time_split(df: pd.DataFrame, date_col: str, train_start: str, train_end: str
     test  = df[(df[date_col] >= s0) & (df[date_col] <= s1)].copy()
     return train, valid, test
 
-def detect_feature_columns(df: pd.DataFrame, id_col: str, date_col: str, industry_col: str, tcri_col: str):
-    exclude = {id_col, date_col, industry_col, tcri_col, "tcri_future", "y", "year", "quarter"}
+def detect_feature_columns(df: pd.DataFrame, id_col: str, date_col: str, industry_col: Optional[str], tcri_col: str):
+    exclude = {id_col, date_col, tcri_col, "tcri_future", "y", "year", "quarter", "scr"}
+    if industry_col:
+        exclude.add(industry_col)
     present = set(df.columns)
     num_cols = [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
-    cat_cols = [industry_col] if industry_col in present else []
+    cat_cols: List[str] = []
+    if industry_col and industry_col in present:
+        cat_cols.append(industry_col)
     return num_cols, cat_cols
 
 def expected_calibration_error(y_true, y_prob, n_bins=10):
@@ -137,14 +127,16 @@ def compute_metrics(y_true, y_prob, threshold, target_precision=0.5) -> Dict[str
 
 def main():
     args = parse_args(); os.makedirs(args.outdir, exist_ok=True)
-    df = load_and_prepare(args.csv, args.id_col, args.date_col, args.industry_col, args.tcri_col)
+    industry_col = (args.industry_col or "").strip()
+    industry_col = industry_col if industry_col else None
+
+    df = load_and_prepare(args.csv, args.id_col, args.date_col, industry_col, args.tcri_col)
     df = create_label_next_period(df, args.id_col, args.tcri_col, args.tau, args.horizon)
     train, valid, test = time_split(df, args.date_col, args.train_start, args.train_end,
                                     args.valid_start, args.valid_end, args.test_start, args.test_end)
-    num_cols, cat_cols = detect_feature_columns(train, args.id_col, args.date_col, args.industry_col, args.tcri_col)
+    num_cols, cat_cols = detect_feature_columns(train, args.id_col, args.date_col, industry_col, args.tcri_col)
 
     numerical = Pipeline([("imputer", SimpleImputer(strategy="median")),
-                          ("winsor", Winsorizer(0.01, 0.99)),
                           ("scaler", StandardScaler())])
     transformers = [("num", numerical, num_cols)]
     if len(cat_cols) > 0:
@@ -174,6 +166,14 @@ def main():
     isot = CalibratedClassifierCV(best_model, method="isotonic", cv="prefit")
     isot.fit(valid[num_cols + cat_cols], valid["y"])
     p_test_isot = pd.Series(isot.predict_proba(test[num_cols + cat_cols])[:,1], index=test.index)
+
+    feature_names = best_model.named_steps["pre"].get_feature_names_out()
+    coef = best_model.named_steps["clf"].coef_[0]
+    coef_df = pd.DataFrame({
+        "feature": feature_names,
+        "coefficient": coef,
+        "abs_coefficient": np.abs(coef),
+    }).sort_values("abs_coefficient", ascending=False).reset_index(drop=True)
 
     metrics = {
         "raw": compute_metrics(test["y"].values, p_test_raw.values, threshold=t_f1, target_precision=args.target_precision),
@@ -207,7 +207,7 @@ def main():
 
     probs_map = {"raw": p_test_raw, "platt": p_test_platt, "isotonic": p_test_isot}
     by_quarter = _agg_slice("quarter", probs_map, test)
-    by_industry = _agg_slice(args.industry_col, probs_map, test)
+    by_industry = _agg_slice(industry_col, probs_map, test) if industry_col else pd.DataFrame()
 
     preds = test[[args.id_col, args.date_col, "y"]].copy()
     preds.rename(columns={"y":"y_true"}, inplace=True)
@@ -216,8 +216,9 @@ def main():
     preds.to_csv(os.path.join(args.outdir, "predictions_test.csv"), index=False, encoding="utf-8-sig")
     with open(os.path.join(args.outdir, "metrics_summary.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
+    coef_df.to_csv(os.path.join(args.outdir, "feature_weights.csv"), index=False, encoding="utf-8-sig")
     by_quarter.to_csv(os.path.join(args.outdir, "metrics_by_quarter.csv"), index=False, encoding="utf-8-sig")
-    if not by_industry.empty:
+    if industry_col and not by_industry.empty:
         by_industry.to_csv(os.path.join(args.outdir, "metrics_by_industry.csv"), index=False, encoding="utf-8-sig")
 
     print("\n=== Test Overall Metrics (threshold = t_f1 on valid) ===")
@@ -226,9 +227,11 @@ def main():
         print(f"[{name}] PR-AUC={m['pr_auc']:.4f}  ROC-AUC={m['roc_auc']:.4f}  F1={m['f1']:.4f}  "
               f"Recall@P>={args.target_precision:.2f}={m[f'recall_at_p>={args.target_precision:.2f}']:.4f}  "
               f"Brier={m['brier']:.4f}  ECE={m['ece']:.4f}")
+    print("\nTop 10 feature weights by |coefficient|:")
+    print(coef_df.head(10).to_string(index=False))
     print(f"\nArtifacts saved under: {os.path.abspath(args.outdir)}")
-    files = ['predictions_test.csv','metrics_summary.json','metrics_by_quarter.csv']
-    if not by_industry.empty: files.append('metrics_by_industry.csv')
+    files = ['predictions_test.csv','metrics_summary.json','metrics_by_quarter.csv','feature_weights.csv']
+    if industry_col and not by_industry.empty: files.append('metrics_by_industry.csv')
     print('Files:', ', '.join(files))
 
 if __name__ == "__main__":
