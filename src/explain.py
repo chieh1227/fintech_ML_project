@@ -20,6 +20,7 @@ def run_shap_for_model(
     feature_names: Sequence[str],
     model_name: str,
     max_background: int = 2000,
+    check_additivity: bool = True,
 ):
     """
     Generate SHAP summary and bar plots for a trained classifier.
@@ -36,11 +37,20 @@ def run_shap_for_model(
         idx = rng.choice(background.shape[0], size=max_background, replace=False)
         background = background[idx]
 
+    explainer = None
+    for constructor in (shap.TreeExplainer, shap.LinearExplainer, shap.Explainer):
+        try:
+            explainer = constructor(fitted_model, background)
+            break
+        except Exception:
+            continue
+    if explainer is None:
+        raise RuntimeError("Failed to build a SHAP explainer for the provided model.")
+
     try:
-        explainer = shap.LinearExplainer(fitted_model, background)
-    except Exception:
-        explainer = shap.Explainer(fitted_model, background)
-    shap_values = explainer(X_test)
+        shap_values = explainer(X_test, check_additivity=check_additivity)
+    except TypeError:
+        shap_values = explainer(X_test)
 
     values = shap_values.values
     if values.ndim == 3:
