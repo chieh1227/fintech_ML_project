@@ -1,0 +1,61 @@
+"""SHAP explainability helpers."""
+from __future__ import annotations
+
+import os
+from typing import Sequence
+
+import matplotlib.pyplot as plt
+import numpy as np
+import shap
+
+
+def _ensure_dense(matrix):
+    return matrix.toarray() if hasattr(matrix, "toarray") else np.asarray(matrix)
+
+
+def run_shap_for_model(
+    fitted_model,
+    X_train,
+    X_test,
+    feature_names: Sequence[str],
+    model_name: str,
+    max_background: int = 2000,
+):
+    """
+    Generate SHAP summary and bar plots for a trained classifier.
+    """
+    plots_dir = os.path.join("outputs", "plots")
+    os.makedirs(plots_dir, exist_ok=True)
+
+    X_train = _ensure_dense(X_train)
+    X_test = _ensure_dense(X_test)
+
+    rng = np.random.default_rng(0)
+    background = X_train
+    if background.shape[0] > max_background:
+        idx = rng.choice(background.shape[0], size=max_background, replace=False)
+        background = background[idx]
+
+    try:
+        explainer = shap.LinearExplainer(fitted_model, background)
+    except Exception:
+        explainer = shap.Explainer(fitted_model, background)
+    shap_values = explainer(X_test)
+
+    values = shap_values.values
+    if values.ndim == 3:
+        values = values[:, :, 1]
+
+    summary_path = os.path.join(plots_dir, f"shap_summary_{model_name}.png")
+    shap.summary_plot(values, X_test, feature_names=feature_names, show=False)
+    plt.savefig(summary_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+    bar_path = os.path.join(plots_dir, f"shap_bar_{model_name}.png")
+    shap.summary_plot(values, X_test, feature_names=feature_names, plot_type="bar", show=False)
+    plt.savefig(bar_path, dpi=300, bbox_inches="tight")
+    plt.close()
+
+
+__all__ = ["run_shap_for_model"]
+

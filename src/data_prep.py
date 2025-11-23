@@ -59,15 +59,23 @@ def time_split(
     return train, valid, test
 
 
-def detect_feature_columns(df: pd.DataFrame, id_col: str, date_col: str, industry_col: Optional[str], tcri_col: str):
+def detect_feature_columns(
+    df: pd.DataFrame,
+    id_col: str,
+    date_col: str,
+    tcri_col: str,
+    categorical_cols: Optional[List[str]] = None,
+):
     exclude = {id_col, date_col, tcri_col, "tcri_future", "y", "year", "quarter", "scr"}
-    if industry_col:
-        exclude.add(industry_col)
+    categorical_cols = categorical_cols or []
+    for col in categorical_cols:
+        exclude.add(col)
     present = set(df.columns)
     num_cols = [c for c in df.columns if c not in exclude and pd.api.types.is_numeric_dtype(df[c])]
     cat_cols: List[str] = []
-    if industry_col and industry_col in present:
-        cat_cols.append(industry_col)
+    for col in categorical_cols:
+        if col in present:
+            cat_cols.append(col)
     return num_cols, cat_cols
 
 
@@ -77,4 +85,3 @@ __all__ = [
     "time_split",
     "detect_feature_columns",
 ]
-

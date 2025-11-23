@@ -44,15 +44,20 @@ def prepare_prediction_frame(test_df: pd.DataFrame, id_col: str, date_col: str, 
     return preds
 
 
-def save_artifacts(preds: pd.DataFrame, metrics: Dict, feature_weights: pd.DataFrame, by_quarter: pd.DataFrame, by_industry: pd.DataFrame, outdir: str):
+def save_artifacts(
+    preds: pd.DataFrame,
+    metrics: Dict,
+    feature_weights: pd.DataFrame,
+    slice_tables: Dict[str, pd.DataFrame],
+    outdir: str,
+):
     os.makedirs(outdir, exist_ok=True)
     preds.to_csv(os.path.join(outdir, "predictions_test.csv"), index=False, encoding="utf-8-sig")
     with open(os.path.join(outdir, "metrics_summary.json"), "w", encoding="utf-8") as f:
         json.dump(metrics, f, indent=2, ensure_ascii=False)
     feature_weights.to_csv(os.path.join(outdir, "feature_weights.csv"), index=False, encoding="utf-8-sig")
-    by_quarter.to_csv(os.path.join(outdir, "metrics_by_quarter.csv"), index=False, encoding="utf-8-sig")
-    if not by_industry.empty:
-        by_industry.to_csv(os.path.join(outdir, "metrics_by_industry.csv"), index=False, encoding="utf-8-sig")
+    for name, df in slice_tables.items():
+        df.to_csv(os.path.join(outdir, f"metrics_by_{name}.csv"), index=False, encoding="utf-8-sig")
 
 
 __all__ = [
@@ -61,4 +66,3 @@ __all__ = [
     "prepare_prediction_frame",
     "save_artifacts",
 ]
-

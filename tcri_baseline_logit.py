@@ -13,7 +13,10 @@ from __future__ import annotations
 import argparse
 import os
 
+import numpy as np
+
 from src.data_prep import create_label_next_period, detect_feature_columns, load_and_prepare, time_split
+from src.explain import run_shap_for_model
 from src.metrics import best_f1_threshold, threshold_at_precision
 from src.modeling.logistic_pipeline import extract_feature_weights, predict_with_calibration, select_best_logistic_model
 from src.reporting import aggregate_slice_metrics, evaluate_predictions, prepare_prediction_frame, save_artifacts
@@ -22,11 +25,16 @@ from src.reporting import aggregate_slice_metrics, evaluate_predictions, prepare
 def parse_args() -> argparse.Namespace:
     p = argparse.ArgumentParser(description="TCRI Logistic Baseline (no-industry ok)")
     p.add_argument("--csv", type=str, required=True)
-    p.add_argument("--outdir", type=str, default="outputs")
+    p.add_argument("--outdir", type=str, default="outputs/logistic_baseline")
     p.add_argument("--id-col", type=str, default="coid")
     p.add_argument("--date-col", type=str, default="mdate")
     p.add_argument("--tcri-col", type=str, default="tcri")
-    p.add_argument("--industry-col", type=str, default="industry")
+    p.add_argument(
+        "--gics-col",
+        type=str,
+        default="GICS_Category",
+        help="Optional categorical column representing GICS segments. Leave blank to ignore.",
+    )
     p.add_argument("--tau", type=int, default=7)
     p.add_argument("--horizon", type=int, default=1)
     p.add_argument("--train-start", type=str, default="2014-01-01")
@@ -44,8 +52,10 @@ def main():
     args = parse_args()
     os.makedirs(args.outdir, exist_ok=True)
 
-    industry_col = (args.industry_col or "").strip() or None
-    df = load_and_prepare(args.csv, args.id_col, args.date_col, industry_col, args.tcri_col)
+    gics_col = (args.gics_col or "").strip() or None
+    categorical_cols = [c for c in [gics_col] if c]
+
+    df = load_and_prepare(args.csv, args.id_col, args.date_col, None, args.tcri_col)
     df = create_label_next_period(df, args.id_col, args.tcri_col, args.tau, args.horizon)
     train, valid, test = time_split(
         df,
@@ -57,7 +67,13 @@ def main():
         args.test_start,
         args.test_end,
     )
-    num_cols, cat_cols = detect_feature_columns(train, args.id_col, args.date_col, industry_col, args.tcri_col)
+    num_cols, cat_cols = detect_feature_columns(
+        train,
+        args.id_col,
+        args.date_col,
+        args.tcri_col,
+        categorical_cols=categorical_cols,
+    )
 
     Cs = [0.1, 1.0, 10.0]
     best_model, best_C, best_score = select_best_logistic_model(
@@ -77,15 +93,33 @@ def main():
     metrics["valid_pr_auc_for_bestC"] = float(best_score)
     metrics["chosen_C"] = float(best_C)
 
-    by_quarter = aggregate_slice_metrics(
-        test, calibrated_probs, "quarter", threshold=t_f1, target_precision=args.target_precision
-    )
-    by_industry = aggregate_slice_metrics(
-        test, calibrated_probs, industry_col, threshold=t_f1, target_precision=args.target_precision
-    )
+    slice_tables = {
+        "quarter": aggregate_slice_metrics(
+            test, calibrated_probs, "quarter", threshold=t_f1, target_precision=args.target_precision
+        )
+    }
+    for col in categorical_cols:
+        table = aggregate_slice_metrics(test, calibrated_probs, col, threshold=t_f1, target_precision=args.target_precision)
+        if not table.empty:
+            slice_tables[col] = table
     preds = prepare_prediction_frame(test, args.id_col, args.date_col, calibrated_probs)
     feature_weights = extract_feature_weights(best_model)
-    save_artifacts(preds, metrics, feature_weights, by_quarter, by_industry, args.outdir)
+    save_artifacts(preds, metrics, feature_weights, slice_tables, args.outdir)
+
+    def _to_dense(matrix):
+        return matrix.toarray() if hasattr(matrix, "toarray") else matrix
+
+    X_train_dense = _to_dense(best_model.named_steps["pre"].transform(train[num_cols + cat_cols]))
+    X_test_dense = _to_dense(best_model.named_steps["pre"].transform(test[num_cols + cat_cols]))
+    feature_names = feature_weights["feature"].tolist()
+    run_shap_for_model(
+        fitted_model=best_model.named_steps["clf"],
+        X_train=X_train_dense,
+        X_test=X_test_dense,
+        feature_names=feature_names,
+        model_name="baseline_logit",
+    )
+    print("SHAP plots saved under outputs/plots: shap_summary_baseline_logit.png, shap_bar_baseline_logit.png")
 
     print("\n=== Test Overall Metrics (threshold = t_f1 on valid) ===")
     for name in ["raw", "platt", "isotonic"]:
@@ -98,12 +132,11 @@ def main():
     print("\nTop 10 feature weights by |coefficient|:")
     print(feature_weights.head(10).to_string(index=False))
     print(f"\nArtifacts saved under: {os.path.abspath(args.outdir)}")
-    files = ["predictions_test.csv", "metrics_summary.json", "metrics_by_quarter.csv", "feature_weights.csv"]
-    if not by_industry.empty:
-        files.append("metrics_by_industry.csv")
-    print("Files:", ", ".join(files))
+    file_list = ["predictions_test.csv", "metrics_summary.json", "feature_weights.csv"]
+    for name in slice_tables.keys():
+        file_list.append(f"metrics_by_{name}.csv")
+    print("Files:", ", ".join(file_list))
 
 
 if __name__ == "__main__":
     main()
-
