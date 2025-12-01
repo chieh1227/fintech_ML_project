@@ -66,10 +66,7 @@ def predict_with_calibration(
     platt = CalibratedClassifierCV(model, method="sigmoid", cv="prefit")
     platt.fit(valid_features, valid_target)
     platt_probs = pd.Series(platt.predict_proba(test_features)[:, 1], index=test_features.index, name="platt")
-    isot = CalibratedClassifierCV(model, method="isotonic", cv="prefit")
-    isot.fit(valid_features, valid_target)
-    isot_probs = pd.Series(isot.predict_proba(test_features)[:, 1], index=test_features.index, name="isotonic")
-    return {"raw": raw, "platt": platt_probs, "isotonic": isot_probs}
+    return {"raw": raw, "platt": platt_probs}
 
 
 def extract_feature_weights(model: Pipeline) -> pd.DataFrame:
@@ -80,4 +77,3 @@ def extract_feature_weights(model: Pipeline) -> pd.DataFrame:
 
 
 __all__ = ["select_best_logistic_model", "predict_with_calibration", "extract_feature_weights"]
-

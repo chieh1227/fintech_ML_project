@@ -122,7 +122,7 @@ def main():
     print("SHAP plots saved under outputs/plots: shap_summary_baseline_logit.png, shap_bar_baseline_logit.png")
 
     print("\n=== Test Overall Metrics (threshold = t_f1 on valid) ===")
-    for name in ["raw", "platt", "isotonic"]:
+    for name in ["raw", "platt"]:
         m = metrics[name]
         key = f"recall_at_p>={args.target_precision:.2f}"
         print(
