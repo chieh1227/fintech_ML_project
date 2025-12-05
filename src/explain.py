@@ -45,14 +45,22 @@ def run_shap_for_model(
         except Exception:
             continue
     if explainer is None:
-        raise RuntimeError("Failed to build a SHAP explainer for the provided model.")
+        # Fallback: use KernelExplainer for arbitrary models (e.g. MLP, SVM)
+        predict_fn = getattr(fitted_model, "predict_proba", None) or getattr(fitted_model, "predict", None)
+        if predict_fn is None:
+            raise RuntimeError("Failed to build a SHAP explainer for the provided model.")
+        try:
+            explainer = shap.KernelExplainer(predict_fn, background)
+        except Exception as exc:  # pragma: no cover - defensive
+            raise RuntimeError("Failed to build a SHAP explainer for the provided model.") from exc
 
     try:
         shap_values = explainer(X_test, check_additivity=check_additivity)
     except TypeError:
         shap_values = explainer(X_test)
 
-    values = shap_values.values
+    # Support both modern shap.Explanation and older ndarray / list outputs
+    values = shap_values.values if hasattr(shap_values, "values") else np.asarray(shap_values)
     if values.ndim == 3:
         values = values[:, :, 1]
 
@@ -68,4 +76,3 @@ def run_shap_for_model(
 
 
 __all__ = ["run_shap_for_model"]
-

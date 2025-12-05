@@ -1,0 +1,13 @@
+﻿feature,coefficient,abs_coefficient
+num__RetainedEarnings_TotalAssets,-1.8075215490775804,1.8075215490775804
+num__CashFlow_TotalDebt,-0.5627791116975025,0.5627791116975025
+num__WorkingCapital_TotalAssets,-0.25684192675761613,0.25684192675761613
+num__GICS_Category,0.22609825519514393,0.22609825519514393
+num__CurrentRatio,0.10542213887125355,0.10542213887125355
+num__TotalDebt_TotalAssets,0.015176231648059426,0.015176231648059426
+num__stock_prefix,0.009997629549281604,0.009997629549281604
+num__WorkingCapital_TotalAssets_miss,0.0,0.0
+num__RetainedEarnings_TotalAssets_miss,0.0,0.0
+num__CashFlow_TotalDebt_miss,0.0,0.0
+num__TotalDebt_TotalAssets_miss,0.0,0.0
+num__CurrentRatio_miss,0.0,0.0

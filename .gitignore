@@ -13,9 +13,6 @@ __pycache__/
 .idea/
 .vscode/
 
-# Outputs and generated artifacts
-outputs/
-
 # Logs and temporary files
 *.log
 *.tmp
