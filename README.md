@@ -4,7 +4,7 @@ Predicting Taiwan Corporate Credit Risk Indicator (TCRI) using multiple machine 
 
 ## Objective
 
-Develop a binary classification model to predict whether a company's TCRI score will reach **≥ 7** (high credit risk) in the next month, using historical financial ratios and industry classification data.
+Develop a binary classification model to predict whether a company's TCRI score will reach **≥ 7** (high credit risk) in the next year, using historical financial ratios and industry classification data.
 
 ## Models Compared
 
@@ -22,11 +22,11 @@ Develop a binary classification model to predict whether a company's TCRI score 
 - **Sources**: TCRI ratings + financial ratio data for ~1000+ Taiwanese companies
 - **Period**: Train (2014–2021), Validation (2022), Test (2023)
 - **Features**: ~80+ financial ratios + GICS industry classification (one-hot encoded)
-- **Label**: Binary — whether TCRI ≥ 7 at t+1
+- **Label**: Binary — whether TCRI ≥ 7 at t+1 year
 
 ## Methodology
 
-1. **Data Pipeline**: Merge TCRI scores with financial ratios, forward-shift labels by 1 month, time-based train/valid/test split (no data leakage)
+1. **Data Pipeline**: Merge TCRI scores with financial ratios, forward-shift labels by 1 year, time-based train/valid/test split (no data leakage)
 2. **Preprocessing**: Median imputation for numeric features, one-hot encoding for categorical features
 3. **Model Selection**: Hyperparameter grid search on validation set, optimized for PR-AUC
 4. **Calibration**: Platt scaling (sigmoid) and Isotonic regression applied to calibrate predicted probabilities
@@ -47,7 +47,7 @@ Develop a binary classification model to predict whether a company's TCRI score 
 ├── rf_model.ipynb           # Random Forest
 ├── nn_model.ipynb           # Neural Network (MLP)
 ├── svm_model.ipynb          # SVM
-├── qrt_model.ipynb          # Gradient Boosting
+├── gb_model.ipynb           # Gradient Boosting
 ├── robustness_splits.ipynb  # Robustness: alternative data splits
 ├── robustness_tau.ipynb     # Robustness: TCRI threshold sensitivity
 └── outputs/                 # Saved predictions, metrics, plots
